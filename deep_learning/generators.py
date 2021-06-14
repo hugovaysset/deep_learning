@@ -1,5 +1,3 @@
-%matplotlib inline
-
 import cv2
 import imageio
 import numpy as np
