@@ -2,6 +2,7 @@ import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from shutil import move, rmtree
 import tensorflow as tf
 from tensorflow import keras
 
@@ -12,29 +13,47 @@ class PredictOnImagesCallback(tf.keras.callbacks.Callback):
     Callback to make segmentation predictions on test images in the end of each epoch.
     """
 
-    def __init__(self, image_dir, save_dir, n_images_to_predict=10):
+    def __init__(self, generator, save_dir, model_name, n_images_to_predict=10):
         """
-        image_dir (str): path to images
+        generator (Generator): image generator giving tuples of (image, mask) on the fly
         save_dir (str): save path for the predictions
+        model_name (str): name of the model (to place the save folder inside it in the end)
         """
-        self.image_dir = image_dir
+        self.generator = generator
         self.save_dir = save_dir
+        self.model_name = model_name
         self.n_images_to_predict = n_images_to_predict
+        
+        if os.path.isdir(self.save_dir):
+            rmtree(self.save_dir)
+        os.mkdir(self.save_dir)
 
     def on_epoch_end(self, epoch, logs={}):
-        batch = np.random.choice(os.listdir(self.image_dir), size=self.n_images_to_predict, replace=False)
-        for im_path in batch:
-            im = imageio.imread(f"{self.image_dir}/{im_path}")
-            pred = self.model.predict(np.expand_dims(im, axis=-1))  # add channel axis
-            # imageio.imwrite(f"{self.save_dir}/epoch_{epoch}_{im_path}")
+        images = np.concatenate([self.generator[k][0] for k in range(self.n_images_to_predict // self.generator.batch_size)], axis=0)
+        predictions = self.model.predict(images)
+        
+        for i, (im, pred) in enumerate(zip(images, predictions)):
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-            ax.imshow(im.squeeze(-1), cmap="gray")
+            
+            for k in range(self.generator.n_channels_ims):
+                if self.generator.n_channels_ims == 1 and k == 0:
+                    ax.imshow(im[:, :, k], cmap="gray")
+                elif self.generator.n_channels_ims > 1 and k == 0:
+                    ax.imshow(im[:, :, k], cmap="Reds")
+                else:
+                    ax.imshow(im[:, :, k], cmap="gray", alpha=0.3)
             ax.imshow(pred.squeeze(-1), cmap="Blues", alpha=0.4)
             plt.axis('off')
-            plt.savefig(f"{self.save_dir}/epoch_{epoch}_{im_path}.png", bbox_inches="tight", format="png")
+            plt.savefig(f"{self.save_dir}/epoch_{epoch}_im_{i}.png", bbox_inches="tight", format="png")
+            plt.close(fig)
+            
+    def on_train_end(self, logs=None):
+        if not os.path.isdir(self.model_name):
+            os.mkdir(self.model_name)
+        move(self.save_dir, self.model_name)
 
 
-class SaveLearningCurvesCallbakc(tf.keras.callbacks.Callback):
+class PlotLearningCurvesCallbakc(tf.keras.callbacks.Callback):
     """
     Callback to plot and save the learning curves loss=f(epochs) and metrics=f(epochs) from epoch==0
     to epoch==current epoch. Allows to make a movie of the learning curves over time.
@@ -66,6 +85,37 @@ class SaveLearningCurvesCallbakc(tf.keras.callbacks.Callback):
         ax[1].set_title("Training curves")
         ax[1].set_xlabel("Epochs")
         ax[1].set_ylabel("IoU")
+
+        fig.suptitle(f"Epoch {epoch}")
+
+        plt.savefig(f"{self.save_dir}/epoch_{epoch}_learning_curve.png", format="png")
+
+
+class PlotLossHistogramCallbakc(tf.keras.callbacks.Callback):
+    """
+    Callback to plot and save the learning curves loss=f(epochs) and metrics=f(epochs) from epoch==0
+    to epoch==current epoch. Allows to make a movie of the learning curves over time.
+    """
+
+    def __init__(self, save_dir, metrics=None):
+        """
+        save_dir (str): path to save the curves
+        metrics (str or tf.keras.metrics): metrics to plot
+        """
+        self.save_dir = save_dir
+        self.metrics = metrics
+
+    def on_epoch_end(self, epoch, logs={}):
+        fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+ 
+        # plot learning curves
+        ax[0].plot(logs["loss"][:], "orange", label="loss")
+        ax[0].plot(logs["val_loss"][:], "b", label="validation loss")
+        ax[0].legend()
+        ax[0].set_title("Training curves")
+        ax[0].set_xlabel("Epochs")
+        ax[0].set_ylabel(f"Loss")
+        # ax[0].set_ylabel("Loss (MSE)")
 
         fig.suptitle(f"Epoch {epoch}")
 
