@@ -59,7 +59,7 @@ class Unet:
         print(f"# input channels : {n_channels_imgs}.")
         print(f"# output channels : {n_channels_masks}.")
 
-        initializer = tf.keras.initializers.RandomNormal(mean=0., stddev=1.)
+        initializer = initializer = tf.keras.initializers.GlorotNormal()
         entree = layers.Input(shape=(input_shape[0], input_shape[1], n_channels_imgs), dtype='float16')
 
         # contraction block 1
