@@ -23,14 +23,25 @@ class PredictOnImagesCallback(tf.keras.callbacks.Callback):
         self.save_dir = save_dir
         self.model_name = model_name
         self.n_images_to_predict = n_images_to_predict
+        self.binarize = np.vectorize(lambda x: 1 if x >= 0.5 else 0)
         
         if os.path.isdir(self.save_dir):
             rmtree(self.save_dir)
         os.mkdir(self.save_dir)
+    
+    def IoU(self, y_true, y_pred):
+        threshold = tf.constant(0.5, dtype=tf.float32)
+        y_pred = K.cast(tf.math.greater(y_pred, threshold), dtype="float32")
+        intersection = K.sum(y_true * y_pred, axis=(1, 2, 3))
+        union = K.sum(y_true + y_pred, axis=(1, 2, 3)) - intersection
+        return K.mean((intersection + K.epsilon()) / (union + K.epsilon()), axis=0)
 
     def on_epoch_end(self, epoch, logs={}):
         images = np.concatenate([self.generator[k][0] for k in range(self.n_images_to_predict // self.generator.batch_size)], axis=0)
-        predictions = self.model.predict(images)
+        
+        masks = np.concatenate([self.generator[k][1] for k in range(self.n_images_to_predict // self.generator.batch_size)], axis=0) > 0.5
+        predictions = self.model.predict(images) > 0.5  
+        metrics = self.IoU(masks, predictions).numpy()
         
         for i, (im, pred) in enumerate(zip(images, predictions)):
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
@@ -43,17 +54,20 @@ class PredictOnImagesCallback(tf.keras.callbacks.Callback):
                 else:
                     ax.imshow(im[:, :, k], cmap="gray", alpha=0.3)
             ax.imshow(pred.squeeze(-1), cmap="Blues", alpha=0.4)
+            ax.set_title(f"Epoch {epoch+1}, IoU = {round(metrics, 2)}")
             plt.axis('off')
-            plt.savefig(f"{self.save_dir}/epoch_{epoch}_im_{i}.png", bbox_inches="tight", format="png")
+            plt.savefig(f"{self.save_dir}/epoch_{epoch+1}_im_{i}.png", bbox_inches="tight", format="png")
             plt.close(fig)
             
     def on_train_end(self, logs=None):
+        if os.path.isdir(self.model_name):
+            rmtree(self.model_name)
         if not os.path.isdir(self.model_name):
             os.mkdir(self.model_name)
         move(self.save_dir, self.model_name)
 
 
-class PlotLearningCurvesCallbakc(tf.keras.callbacks.Callback):
+class PlotLearningCurvesCallback(tf.keras.callbacks.Callback):
     """
     Callback to plot and save the learning curves loss=f(epochs) and metrics=f(epochs) from epoch==0
     to epoch==current epoch. Allows to make a movie of the learning curves over time.
