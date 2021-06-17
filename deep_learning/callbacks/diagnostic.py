@@ -13,17 +13,20 @@ class PredictOnImagesCallback(tf.keras.callbacks.Callback):
     Callback to make segmentation predictions on test images in the end of each epoch.
     """
 
-    def __init__(self, generator, save_dir, model_name, n_images_to_predict=10):
+    def __init__(self, generator, save_dir, model_name, save_freq=1, n_images_to_predict=1):
         """
         generator (Generator): image generator giving tuples of (image, mask) on the fly
         save_dir (str): save path for the predictions
         model_name (str): name of the model (to place the save folder inside it in the end)
+        save_freq (int): save predictions every save_freq epoch
+        n_images_to_predict (int): number of images on which to make predictions
         """
         self.generator = generator
         self.save_dir = save_dir
         self.model_name = model_name
         self.n_images_to_predict = n_images_to_predict
         self.binarize = np.vectorize(lambda x: 1 if x >= 0.5 else 0)
+        self.save_freq = save_freq
         
         if os.path.isdir(self.save_dir):
             rmtree(self.save_dir)
@@ -37,28 +40,29 @@ class PredictOnImagesCallback(tf.keras.callbacks.Callback):
         return K.mean((intersection + K.epsilon()) / (union + K.epsilon()), axis=0)
 
     def on_epoch_end(self, epoch, logs={}):
-        images = np.concatenate([self.generator[k][0] for k in range(self.n_images_to_predict // self.generator.batch_size)], axis=0)
-        
-        masks = np.concatenate([self.generator[k][1] for k in range(self.n_images_to_predict // self.generator.batch_size)], axis=0) > 0.5
-        predictions = self.model.predict(images) > 0.5  
-        metrics = self.IoU(masks, predictions).numpy()
-        
-        for i, (im, pred) in enumerate(zip(images, predictions)):
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-            
-            for k in range(self.generator.n_channels_ims):
-                if self.generator.n_channels_ims == 1 and k == 0:
-                    ax.imshow(im[:, :, k], cmap="gray")
-                elif self.generator.n_channels_ims > 1 and k == 0:
-                    ax.imshow(im[:, :, k], cmap="Reds")
-                else:
-                    ax.imshow(im[:, :, k], cmap="gray", alpha=0.3)
-            ax.imshow(pred.squeeze(-1), cmap="Blues", alpha=0.4)
-            ax.set_title(f"Epoch {epoch+1}, IoU = {round(metrics, 2)}")
-            plt.axis('off')
-            plt.savefig(f"{self.save_dir}/epoch_{epoch+1}_im_{i}.png", bbox_inches="tight", format="png")
-            plt.close(fig)
-            
+        if epoch % self.save_freq == 0:
+            images = np.concatenate([self.generator[k][0] for k in range(self.n_images_to_predict // self.generator.batch_size)], axis=0)
+
+            masks = np.concatenate([self.generator[k][1] for k in range(self.n_images_to_predict // self.generator.batch_size)], axis=0) > 0.5
+            predictions = self.model.predict(images) > 0.5  
+            metrics = self.IoU(masks, predictions).numpy()
+
+            for i, (im, pred) in enumerate(zip(images, predictions)):
+                fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+
+                for k in range(self.generator.n_channels_ims):
+                    if self.generator.n_channels_ims == 1 and k == 0:
+                        ax.imshow(im[:, :, k], cmap="gray")
+                    elif self.generator.n_channels_ims > 1 and k == 0:
+                        ax.imshow(im[:, :, k], cmap="Reds")
+                    else:
+                        ax.imshow(im[:, :, k], cmap="gray", alpha=0.3)
+                ax.imshow(pred.squeeze(-1), cmap="Blues", alpha=0.4)
+                ax.set_title(f"Epoch {epoch+1}, IoU = {round(metrics, 2)}")
+                plt.axis('off')
+                plt.savefig(f"{self.save_dir}/epoch_{epoch+1}_im_{i}.png", bbox_inches="tight", format="png")
+                plt.close(fig)
+
     def on_train_end(self, logs=None):
         if os.path.isdir(self.model_name):
             rmtree(self.model_name)
