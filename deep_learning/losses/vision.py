@@ -10,13 +10,15 @@ def jaccard_distance(smooth=20):
 
     def jaccard_distance_fixed(y_true, y_pred):
         """
-        Calculates mean of Jaccard distance as a loss function
-        """
-        intersection = tf.reduce_sum(y_true * y_pred, axis=(1,2))
-        sum_ = tf.reduce_sum(y_true + y_pred, axis=(1,2))
+        Calculates mean of Jaccard distance as a loss function. The input tensors are 
+        assumed to be of shape (batch, height, width, channels). The Jaccard loss is
+        first computed for each image (axis=1, 2, 3) and then averaged across images
+        of the batch (axis=0).
+        """ 
+        intersection = K.sum(K.abs(y_true * y_pred), axis=(1, 2, 3))
+        sum_ = K.sum(K.abs(y_true) + K.abs(y_pred), axis=(1, 2, 3))
         jac = (intersection + smooth) / (sum_ - intersection + smooth)
-        jd =  (1 - jac) * smooth
-        return tf.reduce_mean(jd)
+        return K.mean((1 - jac) * smooth, axis=0)
     
     return jaccard_distance_fixed
 
